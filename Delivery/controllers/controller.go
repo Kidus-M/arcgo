@@ -1,109 +1,89 @@
 package controllers
 
 import (
+	"context"
 	"net/http"
 	"os"
-	"time"
 
-	"authgo/data"
-	"authgo/models"
+	"task_manager/domain"
+	"task_manager/infrastructure"
+	"task_manager/usecases"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 )
 
-// Controller groups handlers for users and tasks
+// Controller holds usecases and services
 type Controller struct {
-	userSvc *data.UserService
-	taskSvc *data.TaskService
-	secret  string
+	UserUC *usecases.UserUsecase
+	TaskUC *usecases.TaskUsecase
+	JWT    *infrastructure.JWTService
 }
 
-// NewController constructs Controller
-func NewController(us *data.UserService, ts *data.TaskService) *Controller {
-	return &Controller{
-		userSvc: us,
-		taskSvc: ts,
-		secret:  os.Getenv("JWT_SECRET"),
-	}
+// NewController constructs controller
+func NewController(userUC *usecases.UserUsecase, taskUC *usecases.TaskUsecase, jwt *infrastructure.JWTService) *Controller {
+	return &Controller{UserUC: userUC, TaskUC: taskUC, JWT: jwt}
 }
 
-func tokenForUser(u models.User, secret string) (string, error) {
-	claims := jwt.MapClaims{
-		"username": u.Username,
-		"role":     u.Role,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(),
-		"nbf":      time.Now().Unix(),
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString([]byte(secret))
-}
-
-// Register handles POST /register
+// Register endpoint
 func (ctl *Controller) Register(c *gin.Context) {
-	var input struct {
+	var body struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&input); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
 		return
 	}
-	u, err := ctl.userSvc.CreateUser(input.Username, input.Password)
+	ctx := context.Background()
+	u, err := ctl.UserUC.Register(ctx, body.Username, body.Password)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// issue token
-	tok, err := tokenForUser(u, ctl.secret)
+	// generate token
+	token, err := ctl.JWT.GenerateToken(u.Username, u.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return
 	}
-	c.JSON(http.StatusCreated, gin.H{
-		"username": u.Username,
-		"role":     u.Role,
-		"token":    tok,
-	})
+	c.JSON(http.StatusCreated, gin.H{"username": u.Username, "role": u.Role, "token": token})
 }
 
-// Login handles POST /login
+// Login endpoint
 func (ctl *Controller) Login(c *gin.Context) {
-	var input struct {
+	var body struct {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&input); err != nil {
+	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
 		return
 	}
-	u, err := ctl.userSvc.Authenticate(input.Username, input.Password)
+	ctx := context.Background()
+	u, err := ctl.UserUC.Authenticate(ctx, body.Username, body.Password)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return
 	}
-	tok, err := tokenForUser(u, ctl.secret)
+	token, err := ctl.JWT.GenerateToken(u.Username, u.Role)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate token"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"username": u.Username,
-		"role":     u.Role,
-		"token":    tok,
-	})
+	c.JSON(http.StatusOK, gin.H{"username": u.Username, "role": u.Role, "token": token})
 }
 
-// Promote handles POST /promote/:username (admin only)
+// Promote endpoint (admin)
 func (ctl *Controller) Promote(c *gin.Context) {
 	username := c.Param("username")
 	if username == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "username required"})
 		return
 	}
-	updated, err := ctl.userSvc.PromoteUser(username)
+	ctx := context.Background()
+	updated, err := ctl.UserUC.Promote(ctx, username)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to promote user"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to promote"})
 		return
 	}
 	if updated.Username == "" {
@@ -113,20 +93,21 @@ func (ctl *Controller) Promote(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"username": updated.Username, "role": updated.Role})
 }
 
-// GetTasks handles GET /tasks (authenticated: all users)
+// GetTasks (authenticated)
 func (ctl *Controller) GetTasks(c *gin.Context) {
-	tasks, err := ctl.taskSvc.GetAllTasks()
+	ctx := context.Background()
+	tasks, err := ctl.TaskUC.List(ctx)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch tasks"})
 		return
 	}
-	resp := make([]models.TaskResponse, 0, len(tasks))
+	resp := []domain.TaskResponse{}
 	for _, t := range tasks {
 		id := ""
 		if !t.ID.IsZero() {
 			id = t.ID.Hex()
 		}
-		resp = append(resp, models.TaskResponse{
+		resp = append(resp, domain.TaskResponse{
 			ID:          id,
 			Title:       t.Title,
 			Description: t.Description,
@@ -137,10 +118,11 @@ func (ctl *Controller) GetTasks(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// GetTaskByID handles GET /tasks/:id (authenticated)
+// GetTaskByID (authenticated)
 func (ctl *Controller) GetTaskByID(c *gin.Context) {
 	id := c.Param("id")
-	t, err := ctl.taskSvc.GetTaskByID(id)
+	ctx := context.Background()
+	t, err := ctl.TaskUC.GetByID(ctx, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch task"})
 		return
@@ -149,29 +131,29 @@ func (ctl *Controller) GetTaskByID(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	resp := models.TaskResponse{
+	c.JSON(http.StatusOK, domain.TaskResponse{
 		ID:          t.ID.Hex(),
 		Title:       t.Title,
 		Description: t.Description,
 		DueDate:     t.DueDate,
 		Status:      t.Status,
-	}
-	c.JSON(http.StatusOK, resp)
+	})
 }
 
-// CreateTask handles POST /tasks (admin only)
+// CreateTask (admin)
 func (ctl *Controller) CreateTask(c *gin.Context) {
-	var input models.Task
+	var input domain.Task
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json (title required)"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
-	created, err := ctl.taskSvc.CreateTask(input)
+	ctx := context.Background()
+	created, err := ctl.TaskUC.Create(ctx, input)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
 		return
 	}
-	c.JSON(http.StatusCreated, models.TaskResponse{
+	c.JSON(http.StatusCreated, domain.TaskResponse{
 		ID:          created.ID.Hex(),
 		Title:       created.Title,
 		Description: created.Description,
@@ -180,15 +162,16 @@ func (ctl *Controller) CreateTask(c *gin.Context) {
 	})
 }
 
-// UpdateTask handles PUT /tasks/:id (admin only)
+// UpdateTask (admin)
 func (ctl *Controller) UpdateTask(c *gin.Context) {
 	id := c.Param("id")
-	var input models.Task
+	var input domain.Task
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
 	}
-	updated, err := ctl.taskSvc.UpdateTask(id, input)
+	ctx := context.Background()
+	updated, err := ctl.TaskUC.Update(ctx, id, input)
 	if err != nil {
 		if err.Error() == "no fields to update" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
@@ -201,7 +184,7 @@ func (ctl *Controller) UpdateTask(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(http.StatusOK, models.TaskResponse{
+	c.JSON(http.StatusOK, domain.TaskResponse{
 		ID:          updated.ID.Hex(),
 		Title:       updated.Title,
 		Description: updated.Description,
@@ -210,10 +193,11 @@ func (ctl *Controller) UpdateTask(c *gin.Context) {
 	})
 }
 
-// DeleteTask handles DELETE /tasks/:id (admin only)
+// DeleteTask (admin)
 func (ctl *Controller) DeleteTask(c *gin.Context) {
 	id := c.Param("id")
-	ok, err := ctl.taskSvc.DeleteTask(id)
+	ctx := context.Background()
+	ok, err := ctl.TaskUC.Delete(ctx, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete"})
 		return
