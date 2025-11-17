@@ -1,4 +1,4 @@
-package domain
+package Domain
 
 import "go.mongodb.org/mongo-driver/bson/primitive"
 

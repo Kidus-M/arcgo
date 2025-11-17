@@ -1,38 +1,38 @@
-package usecases
+package Usecases
 
 import (
 	"context"
 	"errors"
 
-	"task_manager/domain"
-	"task_manager/repositories"
+	"task_manager1/Domain"
+	"task_manager1/Repositories"
 )
 
 // TaskUsecase defines task business rules
 type TaskUsecase struct {
-	repo repositories.TaskRepository
+	repo Repositories.TaskRepository
 }
 
-func NewTaskUsecase(r repositories.TaskRepository) *TaskUsecase {
+func NewTaskUsecase(r Repositories.TaskRepository) *TaskUsecase {
 	return &TaskUsecase{repo: r}
 }
 
-func (t *TaskUsecase) List(ctx context.Context) ([]domain.Task, error) {
+func (t *TaskUsecase) List(ctx context.Context) ([]Domain.Task, error) {
 	return t.repo.FindAll(ctx)
 }
 
-func (t *TaskUsecase) GetByID(ctx context.Context, id string) (domain.Task, error) {
+func (t *TaskUsecase) GetByID(ctx context.Context, id string) (Domain.Task, error) {
 	return t.repo.FindByID(ctx, id)
 }
 
-func (t *TaskUsecase) Create(ctx context.Context, input domain.Task) (domain.Task, error) {
+func (t *TaskUsecase) Create(ctx context.Context, input Domain.Task) (Domain.Task, error) {
 	if input.Title == "" {
-		return domain.Task{}, errors.New("title required")
+		return Domain.Task{}, errors.New("title required")
 	}
 	return t.repo.Create(ctx, input)
 }
 
-func (t *TaskUsecase) Update(ctx context.Context, id string, input domain.Task) (domain.Task, error) {
+func (t *TaskUsecase) Update(ctx context.Context, id string, input Domain.Task) (Domain.Task, error) {
 	return t.repo.Update(ctx, id, input)
 }
 

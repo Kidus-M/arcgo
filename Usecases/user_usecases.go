@@ -1,35 +1,35 @@
-package usecases
+package Usecases
 
 import (
 	"context"
 	"errors"
 
-	"task_manager/domain"
-	"task_manager/infrastructure"
-	"task_manager/repositories"
+	"task_manager1/Domain"
+	"task_manager1/Infrastructure/security"
+	"task_manager1/Repositories"
 )
 
 // UserUsecase defines user-related business rules
 type UserUsecase struct {
-	repo repositories.UserRepository
-	pw   *infrastructure.PasswordService
+	repo Repositories.UserRepository
+	pw   *Infrastructure.PasswordService
 }
 
-func NewUserUsecase(r repositories.UserRepository, pw *infrastructure.PasswordService) *UserUsecase {
+func NewUserUsecase(r Repositories.UserRepository, pw *Infrastructure.PasswordService) *UserUsecase {
 	return &UserUsecase{repo: r, pw: pw}
 }
 
 // Register creates a user. First user becomes admin.
-func (u *UserUsecase) Register(ctx context.Context, username, password string) (domain.User, error) {
+func (u *UserUsecase) Register(ctx context.Context, username, password string) (Domain.User, error) {
 	if username == "" || password == "" {
-		return domain.User{}, errors.New("username and password required")
+		return Domain.User{}, errors.New("username and password required")
 	}
 	// hash password
 	hash, err := u.pw.Hash(password)
 	if err != nil {
-		return domain.User{}, err
+		return Domain.User{}, err
 	}
-	user := domain.User{
+	user := Domain.User{
 		Username:     username,
 		PasswordHash: hash,
 		Role:         "user",
@@ -37,7 +37,7 @@ func (u *UserUsecase) Register(ctx context.Context, username, password string) (
 	// if first user, promote to admin
 	cnt, err := u.repo.Count(ctx)
 	if err != nil {
-		return domain.User{}, err
+		return Domain.User{}, err
 	}
 	if cnt == 0 {
 		user.Role = "admin"
@@ -47,28 +47,28 @@ func (u *UserUsecase) Register(ctx context.Context, username, password string) (
 }
 
 // Authenticate checks credentials and returns user (without hash)
-func (u *UserUsecase) Authenticate(ctx context.Context, username, password string) (domain.User, error) {
+func (u *UserUsecase) Authenticate(ctx context.Context, username, password string) (Domain.User, error) {
 	found, err := u.repo.FindByUsername(ctx, username)
 	if err != nil {
-		return domain.User{}, err
+		return Domain.User{}, err
 	}
 	if found.Username == "" {
-		return domain.User{}, errors.New("invalid credentials")
+		return Domain.User{}, errors.New("invalid credentials")
 	}
 	if err := u.pw.Compare(found.PasswordHash, password); err != nil {
-		return domain.User{}, errors.New("invalid credentials")
+		return Domain.User{}, errors.New("invalid credentials")
 	}
 	found.PasswordHash = ""
 	return found, nil
 }
 
-func (u *UserUsecase) Promote(ctx context.Context, username string) (domain.User, error) {
+func (u *UserUsecase) Promote(ctx context.Context, username string) (Domain.User, error) {
 	updated, err := u.repo.PromoteToAdmin(ctx, username)
 	if err != nil {
-		return domain.User{}, err
+		return Domain.User{}, err
 	}
 	if updated.Username == "" {
-		return domain.User{}, nil
+		return Domain.User{}, nil
 	}
 	return updated, nil
 }

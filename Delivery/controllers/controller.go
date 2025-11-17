@@ -3,24 +3,23 @@ package controllers
 import (
 	"context"
 	"net/http"
-	"os"
 
-	"task_manager/domain"
-	"task_manager/infrastructure"
-	"task_manager/usecases"
+	"task_manager1/Domain"
+	"task_manager1/Infrastructure/auth"
+	"task_manager1/Usecases"
 
 	"github.com/gin-gonic/gin"
 )
 
-// Controller holds usecases and services
+// Controller holds Usecases and services
 type Controller struct {
-	UserUC *usecases.UserUsecase
-	TaskUC *usecases.TaskUsecase
-	JWT    *infrastructure.JWTService
+	UserUC *Usecases.UserUsecase
+	TaskUC *Usecases.TaskUsecase
+	JWT    *auth.JWTService
 }
 
 // NewController constructs controller
-func NewController(userUC *usecases.UserUsecase, taskUC *usecases.TaskUsecase, jwt *infrastructure.JWTService) *Controller {
+func NewController(userUC *Usecases.UserUsecase, taskUC *Usecases.TaskUsecase, jwt *auth.JWTService) *Controller {
 	return &Controller{UserUC: userUC, TaskUC: taskUC, JWT: jwt}
 }
 
@@ -101,13 +100,13 @@ func (ctl *Controller) GetTasks(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch tasks"})
 		return
 	}
-	resp := []domain.TaskResponse{}
+	resp := []Domain.TaskResponse{}
 	for _, t := range tasks {
 		id := ""
 		if !t.ID.IsZero() {
 			id = t.ID.Hex()
 		}
-		resp = append(resp, domain.TaskResponse{
+		resp = append(resp, Domain.TaskResponse{
 			ID:          id,
 			Title:       t.Title,
 			Description: t.Description,
@@ -131,7 +130,7 @@ func (ctl *Controller) GetTaskByID(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(http.StatusOK, domain.TaskResponse{
+	c.JSON(http.StatusOK, Domain.TaskResponse{
 		ID:          t.ID.Hex(),
 		Title:       t.Title,
 		Description: t.Description,
@@ -142,7 +141,7 @@ func (ctl *Controller) GetTaskByID(c *gin.Context) {
 
 // CreateTask (admin)
 func (ctl *Controller) CreateTask(c *gin.Context) {
-	var input domain.Task
+	var input Domain.Task
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
@@ -153,7 +152,7 @@ func (ctl *Controller) CreateTask(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create task"})
 		return
 	}
-	c.JSON(http.StatusCreated, domain.TaskResponse{
+	c.JSON(http.StatusCreated, Domain.TaskResponse{
 		ID:          created.ID.Hex(),
 		Title:       created.Title,
 		Description: created.Description,
@@ -165,7 +164,7 @@ func (ctl *Controller) CreateTask(c *gin.Context) {
 // UpdateTask (admin)
 func (ctl *Controller) UpdateTask(c *gin.Context) {
 	id := c.Param("id")
-	var input domain.Task
+	var input Domain.Task
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json"})
 		return
@@ -184,7 +183,7 @@ func (ctl *Controller) UpdateTask(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(http.StatusOK, domain.TaskResponse{
+	c.JSON(http.StatusOK, Domain.TaskResponse{
 		ID:          updated.ID.Hex(),
 		Title:       updated.Title,
 		Description: updated.Description,

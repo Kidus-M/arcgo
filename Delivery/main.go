@@ -7,63 +7,82 @@ import (
 	"os"
 	"time"
 
-	"authgo/controllers"
-	"authgo/data"
-	"authgo/middleware"
-	"authgo/router"
+	"task_manager1/Delivery/controllers"
+	"task_manager1/Delivery/routers"
+	"task_manager1/Infrastructure/auth"
+	"task_manager1/Infrastructure/security"
+	"task_manager1/Repositories"
+	"task_manager1/Usecases"
 
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+func NewMongoClient(ctx context.Context, uri string) (*mongo.Client, error) {
+	opts := options.Client().ApplyURI(uri)
+	opts.SetServerSelectionTimeout(10 * time.Second)
+	client, err := mongo.Connect(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Ping(ctx, nil); err != nil {
+		_ = client.Disconnect(ctx)
+		return nil, err
+	}
+	return client, nil
+}
+
 func main() {
-	// load env
 	_ = godotenv.Load()
 
 	uri := os.Getenv("MONGODB_URI")
 	dbName := os.Getenv("MONGODB_DATABASE")
-	taskCollName := os.Getenv("MONGODB_TASK_COLLECTION")
-	userCollName := os.Getenv("MONGODB_USER_COLLECTION")
+	taskColl := os.Getenv("TASKS_COLLECTION")
+	userColl := os.Getenv("USERS_COLLECTION")
 	jwtSecret := os.Getenv("JWT_SECRET")
-
-	if uri == "" || dbName == "" || taskCollName == "" || userCollName == "" || jwtSecret == "" {
-		log.Fatal("MONGODB_URI, MONGODB_DATABASE, collections and JWT_SECRET must be set (see .env.example)")
-	}
-
-	// connect to mongo
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	client, err := data.NewMongoClient(ctx, uri)
-	if err != nil {
-		log.Fatalf("failed to connect to mongodb: %v", err)
-	}
-	defer func() {
-		_ = client.Disconnect(context.Background())
-	}()
-
-	db := client.Database(dbName)
-	taskColl := db.Collection(taskCollName)
-	userColl := db.Collection(userCollName)
-
-	// services
-	userService := data.NewUserService(userColl)
-	taskService := data.NewTaskService(taskColl)
-
-	// controller
-	controller := controllers.NewController(userService, taskService)
-
-	// middleware with jwt secret
-	authMw := middleware.NewAuthMiddleware(jwtSecret, userService)
-
-	// router
-	r := router.SetupRouter(controller, authMw)
-
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
+
+	if uri == "" || dbName == "" || taskColl == "" || userColl == "" || jwtSecret == "" {
+		log.Fatal("MONGODB_URI, MONGODB_DATABASE, TASKS_COLLECTION, USERS_COLLECTION and JWT_SECRET must be set")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	client, err := NewMongoClient(ctx, uri)
+	if err != nil {
+		log.Fatalf("mongo connect error: %v", err)
+	}
+	defer client.Disconnect(context.Background())
+
+	db := client.Database(dbName)
+	taskCollection := db.Collection(taskColl)
+	userCollection := db.Collection(userColl)
+
+	// Wire Repositories
+	userRepo := Repositories.NewMongoUserRepository(userCollection)
+	taskRepo := Repositories.NewMongoTaskRepository(taskCollection)
+
+	// Infrastructure services
+	pwSvc := security.NewPasswordService()
+	jwtSvc := auth.NewJWTService()
+	authMw := auth.NewAuthMiddleware()
+
+	// Usecases
+	userUC := Usecases.NewUserUsecase(userRepo, pwSvc)
+	taskUC := Usecases.NewTaskUsecase(taskRepo)
+
+	// controller
+	ctl := controllers.NewController(userUC, taskUC, jwtSvc)
+
+	// router
+	r := routers.SetupRouter(ctl, authMw)
+
 	addr := fmt.Sprintf(":%s", port)
 	if err := r.Run(addr); err != nil {
-		log.Fatalf("failed to run server: %v", err)
+		log.Fatalf("server exit: %v", err)
 	}
 }
