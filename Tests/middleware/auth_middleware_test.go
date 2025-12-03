@@ -12,18 +12,18 @@ import (
 
 func TestAuthMiddlewareRejectsNoToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	jwtSvc := auth.NewJWTService("test-secret")
-	mw := auth.NewAuthMiddleware(jwtSvc)
-
+	
+	// FIX: Removed unused variable 'jwtSvc'
+	mw := auth.NewAuthMiddleware()
 	r := gin.Default()
-	r.GET("/protected", mw.AuthRequired(), func(c *gin.Context) {
+
+	// NOTE: Ensure 'AuthRequired()' is implemented in your 'auth.AuthMiddleware' struct
+	r.GET("/protected", mw.Handle(), func(c *gin.Context) {
 		c.String(200, "ok")
 	})
 
 	req, _ := http.NewRequest("GET", "/protected", nil)
 	w := httptest.NewRecorder()
-
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, 401, w.Code)

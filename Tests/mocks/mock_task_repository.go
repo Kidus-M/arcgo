@@ -31,7 +31,7 @@ func (m *MockTaskRepository) Update(ctx context.Context, id string, t Domain.Tas
 	return args.Get(0).(Domain.Task), args.Error(1)
 }
 
-func (m *MockTaskRepository) Delete(ctx context.Context, id string) error {
-	args := m.Called(ctx, id)
-	return args.Error(0)
+func (m *MockTaskRepository) Delete(ctx context.Context, id string) (bool, error) {
+    args := m.Called(ctx, id)
+    return args.Bool(0), args.Error(1)
 }
